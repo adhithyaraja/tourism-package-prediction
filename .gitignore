@@ -1,0 +1,15 @@
+# Train/test splits are produced by prep.py and passed between jobs as a
+# workflow artifact - they should never be committed.
+/Xtrain.csv
+/Xtest.csv
+/ytrain.csv
+/ytest.csv
+
+# Local MLflow file store
+mlruns/
+mlflow.log
+
+# Python
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
