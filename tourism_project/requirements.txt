@@ -1,0 +1,10 @@
+# Dependencies for the GitHub Actions MLOps pipeline
+# (data registration -> data preparation -> model training)
+# Versions are pinned so the model artifact produced by the pipeline can be
+# unpickled by the Streamlit app, which pins the same scikit-learn / xgboost.
+pandas==2.2.2
+numpy==1.26.4
+scikit-learn==1.6.0
+xgboost==2.1.4
+mlflow==2.19.0
+joblib==1.4.2

@@ -1,0 +1,10 @@
+# Dependencies for the Streamlit Community Cloud deployment.
+# scikit-learn, xgboost, numpy and joblib MUST match the versions in
+# tourism_project/requirements.txt, otherwise the committed .joblib model
+# will fail to load or will emit version-mismatch warnings.
+streamlit==1.39.0
+pandas==2.2.2
+numpy==1.26.4
+scikit-learn==1.6.0
+xgboost==2.1.4
+joblib==1.4.2

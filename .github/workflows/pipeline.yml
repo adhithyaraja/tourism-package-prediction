@@ -1,0 +1,198 @@
+# =============================================================================
+#  MLOps PIPELINE - Visit with Us : Wellness Tourism Package Prediction
+#  File: .github/workflows/pipeline.yml
+# =============================================================================
+#  Four sequential jobs, each running on a fresh ubuntu runner:
+#
+#    register-dataset  -> validate the schema of tourism.csv, publish it as an
+#                         artifact so the run is auditable.
+#    data-prep         -> clean the data, split it, publish the four split CSVs
+#                         as the `data-splits` artifact.
+#    model-training    -> download that artifact, tune XGBoost with MLflow
+#                         tracking, then COMMIT the trained model back to main.
+#    deployment-check  -> re-checkout main and confirm the app + model + deps
+#                         are all present for Streamlit Community Cloud.
+#
+#  Because jobs run on separate machines, artifacts (not the filesystem) are how
+#  data moves between them.
+# =============================================================================
+
+name: Tourism Package Prediction MLOps Pipeline
+
+on:
+  push:
+    branches:
+      - main            # runs automatically on every push to main
+  workflow_dispatch: {}  # also lets you click "Run workflow" in the Actions tab
+
+# The training job pushes the trained model back to the repository, so the
+# built-in GITHUB_TOKEN needs write access to repository contents.
+permissions:
+  contents: write
+
+jobs:
+
+  # ---------------------------------------------------------------------------
+  # JOB 1 - DATA REGISTRATION
+  # ---------------------------------------------------------------------------
+  register-dataset:
+    name: 1 · Register & Validate Dataset
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install Dependencies
+        run: pip install -r tourism_project/requirements.txt
+
+      - name: Register Dataset
+        run: python tourism_project/model_building/data_register.py
+
+      - name: Upload Registered Dataset
+        uses: actions/upload-artifact@v4
+        with:
+          name: registered-data
+          path: tourism_project/data/tourism.csv
+
+  # ---------------------------------------------------------------------------
+  # JOB 2 - DATA PREPARATION
+  # ---------------------------------------------------------------------------
+  data-prep:
+    name: 2 · Data Preparation
+    needs: register-dataset      # only runs if registration passed
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install Dependencies
+        run: pip install -r tourism_project/requirements.txt
+
+      - name: Run Data Preparation
+        run: python tourism_project/model_building/prep.py
+
+      # Hand the splits to the next job. Without this the training job would
+      # start on a clean machine with no data.
+      - name: Upload Train Test Splits
+        uses: actions/upload-artifact@v4
+        with:
+          name: data-splits
+          path: |
+            Xtrain.csv
+            Xtest.csv
+            ytrain.csv
+            ytest.csv
+
+  # ---------------------------------------------------------------------------
+  # JOB 3 - MODEL TRAINING, TRACKING AND MODEL COMMIT
+  # ---------------------------------------------------------------------------
+  model-training:
+    name: 3 · Train, Tune & Commit Model
+    needs: data-prep
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          # Keep the token so the commit step at the end can push.
+          persist-credentials: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install Dependencies
+        run: pip install -r tourism_project/requirements.txt
+
+      # Restores Xtrain.csv / Xtest.csv / ytrain.csv / ytest.csv into the
+      # repository root, which is where train.py expects to find them.
+      - name: Download Train Test Splits
+        uses: actions/download-artifact@v4
+        with:
+          name: data-splits
+
+      - name: Start MLflow Server
+        run: |
+          nohup mlflow ui --host 0.0.0.0 --port 5000 > mlflow.log 2>&1 &
+          sleep 15   # give the tracking server time to come up
+
+      - name: Model Building
+        run: python tourism_project/model_building/train.py
+
+      # Keep the MLflow experiment folder as build evidence.
+      - name: Upload MLflow Runs
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mlflow-runs
+          path: mlruns
+          if-no-files-found: ignore
+
+      # ----------------------------------------------------------------------
+      # Push the freshly trained model back to main. This is the CD half of
+      # CI/CD: Streamlit Community Cloud watches the repo and redeploys the app
+      # as soon as this commit lands.
+      # "[skip ci]" stops this commit from triggering the workflow again, which
+      # would otherwise create an infinite loop.
+      # ----------------------------------------------------------------------
+      - name: Commit Trained Model
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A tourism_project/deployment/
+          git commit -m "Automated: add trained model and metrics [skip ci]" \
+            || echo "No changes to commit"
+          git pull --rebase origin main
+          git push origin HEAD:main
+
+  # ---------------------------------------------------------------------------
+  # JOB 4 - DEPLOYMENT READINESS CHECK
+  # ---------------------------------------------------------------------------
+  deployment-check:
+    name: 4 · Verify Deployment Assets
+    needs: model-training
+    runs-on: ubuntu-latest
+    steps:
+      # Fresh checkout of main so we see the model the previous job committed.
+      - name: Checkout repository (updated main)
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Verify Deployment Files
+        run: |
+          set -e
+          for f in \
+            tourism_project/deployment/app.py \
+            tourism_project/deployment/requirements.txt \
+            tourism_project/deployment/best_tourism_model_v1.joblib
+          do
+            if [ ! -f "$f" ]; then
+              echo "MISSING: $f"; exit 1
+            fi
+            echo "OK: $f"
+          done
+          echo ""
+          echo "Model metrics from this run:"
+          cat tourism_project/deployment/model_metrics.json
+
+      - name: Deployment Summary
+        run: |
+          echo "### Deployment ready" >> $GITHUB_STEP_SUMMARY
+          echo "The trained model is committed to main." >> $GITHUB_STEP_SUMMARY
+          echo "Streamlit Community Cloud serves \`tourism_project/deployment/app.py\`" >> $GITHUB_STEP_SUMMARY
+          echo "and picks up the new model automatically." >> $GITHUB_STEP_SUMMARY
