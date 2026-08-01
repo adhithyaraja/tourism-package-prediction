@@ -7,15 +7,15 @@
     "subsample": 1.0
   },
   "scale_pos_weight": 4.1826,
-  "best_cv_f1": 0.7781,
+  "best_cv_f1": 0.7868,
   "train_accuracy": 1.0,
   "train_precision": 1.0,
   "train_recall": 1.0,
   "train_f1": 1.0,
   "train_roc_auc": 1.0,
-  "test_accuracy": 0.9328,
-  "test_precision": 0.8531,
-  "test_recall": 0.7871,
-  "test_f1": 0.8188,
-  "test_roc_auc": 0.96
+  "test_accuracy": 0.939,
+  "test_precision": 0.8681,
+  "test_recall": 0.8065,
+  "test_f1": 0.8361,
+  "test_roc_auc": 0.9575
 }
